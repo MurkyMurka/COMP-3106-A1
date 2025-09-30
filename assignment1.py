@@ -1,4 +1,6 @@
 # Name this file to assignment1.py when you submit
+import math
+
 
 # constants for grid
 GOAL_SQUARE = 'G'
@@ -21,9 +23,18 @@ class State_Node:
       return True
     else:
       return False
-    
+  
+  ''' Just in case we'd rather use this way
+  def calcH(Goal):
+    return math.sqrt(abs(self.row_pos - Goal.row_pos)**2 + abs(self.col_pos - Goal.col_pos)**2)
+  '''
+
   def create_neighbour_states(self, grid):
-    # create one neightbour state for each adjacent square
+    # create one neighbour state for each adjacent square
+    pass
+
+def calcH(Start, Goal):
+  return math.sqrt(abs(Start.row_pos - Goal.row_pos)**2 + abs(Start.col_pos - Goal.col_pos)**2)
 
 # The pathfinding function must implement A* search to find the goal state
 def pathfinding(filepath):
