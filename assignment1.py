@@ -1,157 +1,128 @@
 # Name this file to assignment1.py when you submit
+
+"""
+assignment1.py
+By Adam, Mark, and Nico.
+
+Performs A* search on a configured filepath to a CSV grid.
+Assumes there are:
+    exactly one start square,
+    at least one goal square,
+    at least 0 wall squares,
+    at least 0 regular squares
+and that regular squares are represented by an integer <= 0
+"""
+
 import math, heapq, itertools
 
-# constants for grid
 START_SQUARE = 'S'
 GOAL_SQUARE = 'G'
 WALL_SQUARE = 'X'
-GOAL_COINS = 5
+GOAL_TREASURES = 5
 
-class State_Node:
-  def __init__(self, grid, curr_row, curr_col, coin_locations, collected_coins, goal_locations, parent_state_node=None):
-    self.grid                   = grid              # accessible by [row][col]
-    self.curr_row               = curr_row          # current row position
-    self.curr_col               = curr_col          # current column position
-    self.coin_locations         = coin_locations    # list of all coin positions as (row, col)
-    self.collected_coins        = collected_coins   # list of collected coins positions as (row, col)
-    self.goal_locations         = goal_locations    # list of all goal positions as (row, col)
-    self.parent_state_node      = parent_state_node # parent state node
+class StateNode:
+    # represents a state, with pointers to parent and neighbours
+    def __init__(self, grid, row, col, treasure_locations, collected_treasures, goal_locations, parent=None, g=0):
+        self.grid = grid
+        self.row = row
+        self.col = col
+        self.treasure_locations = treasure_locations
+        self.collected_treasures = collected_treasures[:]
+        self.goal_locations = goal_locations
+        self.parent = parent
+        self.g = g
 
-    self.neighbour_state_nodes  = []                # list of neighbour state nodes; to be determined
+    def get_num_treasures(self):
+        # returns the total value of treasures collected in this state
+        return sum(int(self.grid[r][c]) for r, c in self.collected_treasures)
 
-  def __str__(self):
-    # format: "Pos:(row col), Coins:[(r1,c1),(r2,c2)...] (Total:n), Parent:parent_state_node"
-    return f"Pos:({self.curr_row} {self.curr_col}), Coins:{self.collected_coins} (Total:{self.get_num_coins()}), Parent:{self.parent_state_node}"
-  
-  def get_num_coins(self):
-    # returns the number of coins collected so far
-    num_coins = 0
-    for coin in self.collected_coins:
-      num_coins += int(self.grid[coin[0]][coin[1]])
-    return num_coins
+    def is_goal(self):
+        # returns true if state has enough treasures and is on a goal square
+        return self.grid[self.row][self.col] == GOAL_SQUARE and self.get_num_treasures() >= GOAL_TREASURES
 
-  def is_goal_state(self):
-    # returns true if is a goal state, false otherwise
-    if self.grid[self.curr_row][self.curr_col] == GOAL_SQUARE and self.get_num_coins() >= GOAL_COINS:
-      return True
-    else:
-      return False
-    
-  def update_coins(self):
-    # update the coin list if current position has a coin
-    if (self.curr_row, self.curr_col) in self.coin_locations and (self.curr_row, self.curr_col) not in self.collected_coins:
-      self.collected_coins.append((self.curr_row, self.curr_col))
+    def update_treasures(self):
+        # update treasures in case this state finds itself on a treasure
+        if (self.row, self.col) in self.treasure_locations and (self.row, self.col) not in self.collected_treasures:
+            self.collected_treasures.append((self.row, self.col))
 
-  def get_neighbour_states(self):
-    # create one neighbour state for each adjacent square
-    neighbours = []
-    directions = [(-1,0), (1,0), (0,1), (0,-1)]
-    for dr, dc in directions:
-      nr, nc = self.curr_row + dr, self.curr_col + dc
-      if 0 <= nr < len(self.grid) and 0 <= nc < len(self.grid[0]):
-        if self.grid[nr][nc] != WALL_SQUARE:
-          # copy collected coins so far
-          new_collected = self.collected_coins[:]
-          neighbour = State_Node(self.grid, nr, nc, self.coin_locations, new_collected, self.goal_locations, self)
-          neighbour.update_coins()
-          neighbours.append(neighbour)
-    self.neighbour_state_nodes = neighbours
-    return neighbours
+    def get_neighbours(self):
+        # find and returns the neighbours given that they are in bound and not walls
+        neighbours = []
+        # check each direction
+        for dr, dc in [(-1,0),(1,0),(0,-1),(0,1)]:
+            nr, nc = self.row + dr, self.col + dc
+            if 0 <= nr < len(self.grid) and 0 <= nc < len(self.grid[0]):
+                if self.grid[nr][nc] != WALL_SQUARE:
+                    neighbour = StateNode(self.grid, nr, nc, self.treasure_locations, self.collected_treasures, self.goal_locations, parent=self, g=self.g+1)
+                    neighbour.update_treasures()
+                    neighbours.append(neighbour)
+        return neighbours
 
-def calcH(node, goals):
-  # calculation for heuristic using the minimum Euclidean distance to any goal
-  return min(
-    math.sqrt((node.curr_row - gr)**2 + (node.curr_col - gc)**2)
-    for gr, gc in goals
-  )
+def heuristic(node, goals):
+    # use Euclidean distance from nearest goal
+    return min(math.sqrt((node.row - gr)**2 + (node.col - gc)**2) for gr, gc in goals)
 
-def priority(g, thisPos,goalPos):
-  # calculation for priority function f(n) = g(n) + h(n)
-  return g + calcH(thisPos, goalPos)
+def same_state(n1, n2):
+    # return True if two nodes are at the same position with the same collected treasures
+    return n1.row == n2.row and n1.col == n2.col and sorted(n1.collected_treasures) == sorted(n2.collected_treasures)
 
-# The pathfinding function must implement A* search to find the goal state
 def pathfinding(filepath):
-  # filepath is the path to a CSV file containing a grid 
-  # finds the optimal path using A* search
-
-  def construct_grid(filepath):
-    # construct a 2D array (list of lists) to represent the grid
-    grid = []
-    with open(filepath) as file:
-      for line in file:
-        row = line.strip().split(",")
-        grid.append(row)
-    return grid
-  
-  def start_search(grid):
-    # performs the search for the optimal path
-    # assumes that exactly one Start square exists, and at least one Goal square exists
-    # returns optimal path, optimal path cost, number of states explored
-
-    # find goals and coin positions as [row][col]
-    goal_squares = []
-    coin_squares = []
+    # read grid and parse into [row][column] 2D list
+    grid = [line.strip().split(",") for line in open(filepath)]
+    
+    # find start squares, goal square(s), treasure square(s)
+    goals = []
+    treasures = []
     for r in range(len(grid)):
-      for c in range(len(grid[0])):
-        if grid[r][c] == START_SQUARE:
-          start_r = r
-          start_c = c
-        if grid[r][c] == GOAL_SQUARE:
-          goal_squares.append((r,c))
-        if grid[r][c].isdigit() and int(grid[r][c]) > 0:
-          coin_squares.append((r,c))
+        for c in range(len(grid[0])):
+            if grid[r][c] == START_SQUARE:
+                start_row, start_col = r, c
+            if grid[r][c] == GOAL_SQUARE:
+                goals.append((r,c))
+            if grid[r][c].isdigit() and int(grid[r][c]) > 0:
+                treasures.append((r,c))
 
-    # build start node
-    start_node = State_Node(grid, start_r, start_c, coin_squares, [], goal_squares)
-
-    # A* search
-    counter = itertools.count()  # used to break ties in heapq
+    # commence the A* search
+    start_node = StateNode(grid, start_row, start_col, treasures, [], goals)
     frontier = []
-    explored = set()  # explored set of signatures
-
-    # initial state signature
-    start_sig = (start_node.curr_row, start_node.curr_col, tuple(sorted(start_node.collected_coins)))
-    heapq.heappush(frontier, (0, next(counter), start_node))
-    g_score = {start_sig: 0}
-    num_states_explored = 0
+    counter = itertools.count() # used as tiebreaker of equal priority states
+    heapq.heappush(frontier, (heuristic(start_node, goals), next(counter), start_node))
+    explored = []
+    num_explored = 0
 
     while frontier:
-      _, _, current = heapq.heappop(frontier)
-      sig = (current.curr_row, current.curr_col, tuple(sorted(current.collected_coins)))
+        # pop current state
+        _, _, current = heapq.heappop(frontier)
 
-      # skip if current state has already been explored
-      if sig in explored:
-        continue
+        # skip explored states
+        if any(same_state(current, node) for node in explored):
+            continue
 
-      # mark as current state explored
-      explored.add(sig)
-      num_states_explored += 1
+        # mark state as explored
+        explored.append(current)
+        num_explored += 1
 
-      # goal state is found
-      if current.is_goal_state():
-        # reconstruct path
-        # return path as list of (row, col) tuples, path cost, number of states explored
-        path = []
-        node = current
-        while node is not None:
-          path.append((node.curr_row, node.curr_col))
-          node = node.parent_state_node
-        path.reverse()
-        return path, g_score[sig], num_states_explored
+        # check if state is a goal
+        if current.is_goal():
+            # rebuild path and return
+            path = []
+            node = current
+            while node:
+                path.append((node.row, node.col))
+                node = node.parent
+            path.reverse()
+            return path, current.g, num_explored
 
-      # explore neighbours
-      for neighbour in current.get_neighbour_states():
-        neighbour_sig = (neighbour.curr_row, neighbour.curr_col, tuple(sorted(neighbour.collected_coins)))
-        tentative_g = g_score[sig] + 1
+        # add neighbours to frontier
+        for neighbour in current.get_neighbours():
+            heapq.heappush(frontier, (neighbour.g + heuristic(neighbour, goals), next(counter), neighbour))
+    
+    # if the code gets here, it means that no solution could be found :(
+    return None
 
-        # only add neighbour to frontier if it's not explored or has a better g_score
-        if neighbour_sig not in explored and (neighbour_sig not in g_score or tentative_g < g_score[neighbour_sig]):
-          g_score[neighbour_sig] = tentative_g
-          f = tentative_g + calcH(neighbour, goal_squares)
-          heapq.heappush(frontier, (f, next(counter), neighbour))
-
-  grid = construct_grid(filepath)
-  return start_search(grid)
-
-fp = 'grid.txt'
-print(pathfinding(filepath=fp))
+# USER: change value of fp to match grid filepath
+fp = "grid.txt"
+# print the (1) optimal path, (2) cost of optimal path, (3) number of states explored
+toPrint = pathfinding(fp)
+for line in toPrint:
+    print(line)
